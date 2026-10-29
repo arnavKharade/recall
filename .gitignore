@@ -1,0 +1,198 @@
+```gitignore
+# ==========================================
+# ENVIRONMENT VARIABLES AND SECRETS
+# ==========================================
+
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# NODE.JS / REACT / VITE FRONTEND
+# ==========================================
+
+node_modules/
+frontend/node_modules/
+
+frontend/dist/
+frontend/.vite/
+
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Package manager and tool caches
+.npm/
+.yarn/cache/
+.turbo/
+
+# ==========================================
+# PYTHON / FASTAPI BACKEND
+# ==========================================
+
+# Python virtual environments
+.venv/
+venv/
+env/
+backend/.venv/
+backend/venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Native extensions
+*.so
+*.pyd
+
+# Python build and distribution files
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+
+# ==========================================
+# PYTHON TESTING AND QUALITY TOOLS
+# ==========================================
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+pytestdebug.log
+
+# ==========================================
+# DATABASES AND LOCAL DATA
+# ==========================================
+
+# Local SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# PostgreSQL local dumps and backups
+*.dump
+*.backup
+*.bak
+
+# Local uploads and generated document files
+backend/storage/
+backend/uploads/
+backend/data/
+uploads/
+
+# ==========================================
+# AI MODELS AND GENERATED ARTIFACTS
+# ==========================================
+
+# Large locally downloaded model files
+models/
+*.gguf
+*.safetensors
+*.onnx
+
+# Model caches
+.huggingface/
+.cache/huggingface/
+.cache/torch/
+.cache/
+
+# Generated embeddings and vector indexes
+vector_store/
+chroma_db/
+.faiss/
+
+# ==========================================
+# LOGS AND TEMPORARY FILES
+# ==========================================
+
+*.log
+logs/
+tmp/
+temp/
+
+# ==========================================
+# EDITORS AND IDEs
+# ==========================================
+
+.vscode/
+.idea/
+*.suo
+*.user
+*.code-workspace
+
+# ==========================================
+# OPERATING SYSTEM FILES
+# ==========================================
+
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+Desktop.ini
+
+# ==========================================
+# DOCKER AND LOCAL OVERRIDES
+# ==========================================
+
+# Local-only Docker Compose overrides
+docker-compose.override.yml
+compose.override.yaml
+
+# ==========================================
+# OPTIONAL LOCAL CONFIGURATION
+# ==========================================
+
+# Keep example configuration files tracked.
+# Real credentials and local-only configuration stay ignored.
+!.env.example
+!.env.*.example
+
+### Now, fix the files Git may already have staged
+
+**Important:** `.gitignore` does not automatically unstage files that Git has already picked up.
+
+Run these commands in **Git Bash**, from your project root:
+
+```bash
+cd ~/Desktop/Recall
+```
+
+First, save the updated `.gitignore`, then run:
+
+```bash
+git rm -r --cached --ignore-unmatch backend/.venv
+git add .gitignore
+git add -A
+```
+
+This removes `backend/.venv` from Git's staging index if it was staged, but **does not delete your virtual environment from your computer**.
+
+### Verify the result
+
+Run:
+
+```bash
+git status --short
+```
+
+Then:
+
+```bash
+git check-ignore -v backend/.venv/Scripts/python.exe
+```
+
+The second command should show the `.gitignore` rule responsible for ignoring that Python executable.
+
+**Stop before committing or pushing.** Send me the output of both commands so we can confirm that your virtual environment and other unnecessary files aren't included in the repository.
