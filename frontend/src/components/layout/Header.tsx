@@ -1,9 +1,13 @@
+
 import {
   Bell,
   Search,
-  ChevronDown,
   Plus,
+  LogOut,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+
+import { useAuth } from '../../context/AuthContext'
 
 type HeaderProps = {
   title: string
@@ -11,9 +15,23 @@ type HeaderProps = {
 }
 
 function Header({ title, description }: HeaderProps) {
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+
+  const initials = user?.name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('') ?? 'U'
+
+  function handleLogout() {
+    logout()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <header className="sticky top-0 z-20 flex min-h-20 items-center justify-between gap-4 border-b border-border bg-surface px-4 py-4 transition-colors sm:px-6 lg:px-8">
-      {/* Page information */}
       <div className="min-w-0">
         <h2 className="truncate text-lg font-semibold tracking-tight text-foreground sm:text-xl">
           {title}
@@ -24,9 +42,7 @@ function Header({ title, description }: HeaderProps) {
         </p>
       </div>
 
-      {/* Header actions */}
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        {/* Search */}
         <div className="hidden items-center gap-2 rounded-lg border border-border bg-surface-secondary px-3 py-2 md:flex">
           <Search
             size={16}
@@ -45,7 +61,6 @@ function Header({ title, description }: HeaderProps) {
           </kbd>
         </div>
 
-        {/* Add document */}
         <button
           type="button"
           className="hidden items-center gap-2 rounded-lg bg-primary px-3.5 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:flex"
@@ -55,7 +70,6 @@ function Header({ title, description }: HeaderProps) {
           <span className="lg:hidden">Add</span>
         </button>
 
-        {/* Notifications */}
         <button
           type="button"
           aria-label="Notifications"
@@ -70,22 +84,33 @@ function Header({ title, description }: HeaderProps) {
           />
         </button>
 
-        {/* User profile */}
-        <button
-          type="button"
-          aria-label="User profile"
-          title="User profile"
-          className="flex items-center gap-1.5 rounded-lg p-1.5 transition-colors hover:bg-surface-hover sm:gap-2"
-        >
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-secondary text-xs font-semibold text-foreground">
-            AK
+        <div className="flex items-center gap-2">
+          <div
+            title={user?.name ?? 'User'}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-subtle text-xs font-semibold text-primary"
+          >
+            {initials}
           </div>
 
-          <ChevronDown
-            size={15}
-            className="hidden text-muted-foreground sm:block"
-          />
-        </button>
+          <div className="hidden min-w-0 lg:block">
+            <p className="max-w-32 truncate text-xs font-medium text-foreground">
+              {user?.name}
+            </p>
+            <p className="max-w-32 truncate text-[11px] text-muted-foreground">
+              {user?.email}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            title="Sign out"
+            aria-label="Sign out"
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-destructive"
+          >
+            <LogOut size={17} />
+          </button>
+        </div>
       </div>
     </header>
   )

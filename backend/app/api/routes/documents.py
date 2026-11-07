@@ -1,7 +1,6 @@
 
 from pathlib import Path
 from uuid import UUID
-from app.services.document_processing import process_document
 
 from fastapi import (
     APIRouter,
@@ -13,6 +12,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,20 +20,45 @@ from app.api.dependencies import get_current_user
 from app.db.database import get_db
 from app.models import Collection, Document, User
 from app.schemas.documents import DocumentResponse
+from app.schemas.search import (
+    SemanticSearchRequest,
+    SemanticSearchResponse,
+)
+from app.services.document_processing import process_document
 from app.services.document_storage import (
     delete_stored_file,
     get_stored_file_path,
     save_pdf,
 )
-
-from app.schemas.search import (
-    SemanticSearchRequest,
-    SemanticSearchResponse,
-)
 from app.services.search_service import semantic_search
 
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
+
+
+class DocumentCollectionUpdate(BaseModel):
+    collection_id: UUID | None
+
+
+def get_owned_document(
+    db: Session,
+    document_id: UUID,
+    user_id: UUID,
+) -> Document:
+    document = db.scalar(
+        select(Document).where(
+            Document.id == document_id,
+            Document.user_id == user_id,
+        )
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    return document
 
 
 @router.post(
@@ -95,14 +120,35 @@ async def upload_document(
 
 @router.get("", response_model=list[DocumentResponse])
 def list_documents(
+    collection_id: UUID | None = Query(default=None),
+    unassigned: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
+    if collection_id is not None and unassigned:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot filter by collection_id and unassigned together.",
+        )
+
+    statement = select(Document).where(
+        Document.user_id == current_user.id
+    )
+
+    if collection_id is not None:
+        statement = statement.where(
+            Document.collection_id == collection_id
+        )
+
+    elif unassigned:
+        statement = statement.where(
+            Document.collection_id.is_(None)
+        )
+
     statement = (
-        select(Document)
-        .where(Document.user_id == current_user.id)
+        statement
         .order_by(Document.uploaded_at.desc())
         .offset(offset)
         .limit(limit)
@@ -111,24 +157,45 @@ def list_documents(
     return db.scalars(statement).all()
 
 
-@router.get("/{document_id}", response_model=DocumentResponse)
-def get_document(
+@router.patch(
+    "/{document_id}/collection",
+    response_model=DocumentResponse,
+)
+def update_document_collection(
     document_id: UUID,
+    payload: DocumentCollectionUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    document = db.scalar(
-        select(Document).where(
-            Document.id == document_id,
-            Document.user_id == current_user.id,
-        )
+    document = get_owned_document(
+        db=db,
+        document_id=document_id,
+        user_id=current_user.id,
     )
 
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
+    if payload.collection_id is not None:
+        collection = db.scalar(
+            select(Collection).where(
+                Collection.id == payload.collection_id,
+                Collection.user_id == current_user.id,
+            )
         )
+
+        if collection is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collection not found.",
+            )
+
+    document.collection_id = payload.collection_id
+
+    try:
+        db.commit()
+        db.refresh(document)
+
+    except Exception:
+        db.rollback()
+        raise
 
     return document
 
@@ -156,6 +223,18 @@ def search_documents(
     }
 
 
+@router.get("/{document_id}", response_model=DocumentResponse)
+def get_document(
+    document_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return get_owned_document(
+        db=db,
+        document_id=document_id,
+        user_id=current_user.id,
+    )
+
 
 @router.get("/{document_id}/download")
 def download_document(
@@ -163,18 +242,11 @@ def download_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    document = db.scalar(
-        select(Document).where(
-            Document.id == document_id,
-            Document.user_id == current_user.id,
-        )
+    document = get_owned_document(
+        db=db,
+        document_id=document_id,
+        user_id=current_user.id,
     )
-
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
 
     file_path = get_stored_file_path(document.storage_key)
 
@@ -200,24 +272,18 @@ def delete_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    document = db.scalar(
-        select(Document).where(
-            Document.id == document_id,
-            Document.user_id == current_user.id,
-        )
+    document = get_owned_document(
+        db=db,
+        document_id=document_id,
+        user_id=current_user.id,
     )
-
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
 
     storage_key = document.storage_key
 
     try:
         db.delete(document)
         db.commit()
+
     except Exception:
         db.rollback()
         raise

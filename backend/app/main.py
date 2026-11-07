@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.routes.auth import router as auth_router
+from app.api.routes.collections import router as collections_router
 from app.api.routes.documents import router as documents_router
 from app.api.routes.conversation import router as conversations_router
 from app.core.config import settings
@@ -14,7 +15,7 @@ from app.db.database import get_db
 app = FastAPI(
     title=settings.app_name,
     description="Backend API for the Recall document intelligence platform.",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 app.add_middleware(
@@ -29,6 +30,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix=settings.api_v1_prefix)
+app.include_router(collections_router, prefix=settings.api_v1_prefix)
 app.include_router(documents_router, prefix=settings.api_v1_prefix)
 app.include_router(conversations_router, prefix=settings.api_v1_prefix)
 

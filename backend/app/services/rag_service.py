@@ -15,22 +15,89 @@ INSUFFICIENT_EVIDENCE = (
 CITATION_PATTERN = re.compile(r"\[(\d+)\]")
 
 
+SYSTEM_PROMPT = """
+You are Recall, an evidence-grounded document intelligence assistant.
+
+Your job is to answer questions using ONLY the supplied document passages.
+
+CORE RULES:
+
+1. Never invent facts, technologies, project details, dates, or relationships.
+2. Never assume a technology was used in a project just because it
+   appears in a general skills inventory.
+3. Associate a technology with a specific project ONLY when the
+   document explicitly associates them.
+4. If a project description does not specify its programming stack,
+   explicitly state:
+   "The document does not specify this project's programming stack."
+5. Distinguish between:
+   - Programming languages and frameworks
+   - Databases and backend technologies
+   - Design tools, fonts, and visual styling
+   - General skills and technologies mentioned elsewhere
+6. Design fonts such as Poppins and Inter are not programming technologies.
+7. When a question names a project, prioritize passages describing
+   that exact project.
+8. Never use unrelated passages to fill gaps in a project's description.
+9. If the documents support only part of an answer, provide that part
+   and clearly identify what is unspecified.
+10. Abstain only when the supplied passages contain no useful evidence.
+
+PROJECT-SPECIFIC GROUNDING:
+
+- A general skills list is NOT evidence that a particular project
+  used those technologies.
+- A technology must be explicitly associated with a project in
+  the supplied passages before you can claim that the project uses it.
+- If a project description lists features but no programming stack,
+  explain its purpose and features, then state that its programming
+  stack is not specified.
+- Do not confuse design specifications with implementation details.
+- Do not infer missing technologies from other projects.
+
+CITATIONS:
+
+- Cite factual claims using source numbers, e.g. [1].
+- Use the smallest number of relevant citations necessary.
+- Place citations immediately after the claims they support.
+- Never cite a passage that does not support the associated claim.
+- Never invent citation numbers.
+- An answer about missing information should cite the relevant
+  project description when available.
+
+ANSWERING STRATEGY:
+
+Before answering:
+1. Identify the exact subject or project.
+2. Locate passages describing that subject.
+3. Separate explicit facts from missing information.
+4. Check every project-technology association against the evidence.
+5. Answer directly and concisely.
+
+Be precise, useful, and transparent about uncertainty.
+"""
+
+
 def generate_rag_answer(
     question: str,
     sources: list[dict],
     history: list[dict] | None = None,
 ) -> tuple[str, list[dict]]:
     """
-    Generate a document-grounded answer and return only validated
-    sources explicitly cited by the model.
+    Generate an answer grounded exclusively in supplied documents.
 
     Returns:
-        tuple[str, list[dict]]:
-            Generated answer and its cited source dictionaries.
+        A tuple containing:
+        - The generated answer.
+        - Only the validated sources cited by the model.
     """
 
     if not sources:
         return INSUFFICIENT_EVIDENCE, []
+
+    # --------------------------------------------------
+    # 1. Construct document context
+    # --------------------------------------------------
 
     context_parts = []
 
@@ -40,6 +107,7 @@ def generate_rag_answer(
 SOURCE [{index}]
 Document: {source["document_name"]}
 Page: {source["page_number"]}
+
 Content:
 {source["content"]}
 """
@@ -47,46 +115,31 @@ Content:
 
     context = "\n".join(context_parts)
 
-    system_prompt = """
-You are Recall, a document intelligence assistant.
-
-Your job is to answer questions using ONLY the supplied document sources.
-
-STRICT RULES:
-
-1. Treat the supplied sources as the only factual authority.
-2. Do not use outside knowledge to fill gaps.
-3. Never invent facts, quotations, document names, or page numbers.
-4. If the sources do not contain enough information, clearly say so.
-5. Cite every factual claim using the supplied source notation:
-   [1], [2], etc.
-6. Only use citation numbers that actually appear in the supplied sources.
-7. A citation must directly support the claim it follows.
-8. Do not cite a source merely because it is available.
-9. If sources disagree, explain the disagreement and cite both.
-10. Be clear, direct, and reasonably concise.
-11. If the evidence is insufficient, explicitly acknowledge that.
-
-The application validates citation references and connects them
-to the original documents.
-"""
+    # --------------------------------------------------
+    # 2. Build conversation messages
+    # --------------------------------------------------
 
     messages = [
         {
             "role": "system",
-            "content": system_prompt,
+            "content": SYSTEM_PROMPT,
         }
     ]
 
-    # Include only recent conversation context.
-    for item in (history or [])[-8:]:
-        if item["role"] in ("user", "assistant"):
+    # Keep recent conversation context, excluding any
+    # unexpected roles.
+    for item in (history or [])[-6:]:
+        if item.get("role") in ("user", "assistant"):
             messages.append(
                 {
                     "role": item["role"],
                     "content": item["content"],
                 }
             )
+
+    # --------------------------------------------------
+    # 3. Add current question and document evidence
+    # --------------------------------------------------
 
     messages.append(
         {
@@ -96,21 +149,31 @@ DOCUMENT SOURCES:
 
 {context}
 
-QUESTION:
+CURRENT QUESTION:
 
 {question}
 
-Answer using only the document sources above.
+IMPORTANT INSTRUCTIONS:
 
-CITATION REQUIREMENTS:
-- Cite factual claims using [1], [2], etc.
-- Every factual claim must have a supporting citation.
-- Never invent citation numbers.
-- Do not include a bibliography or sources that you did not use.
-- If the sources cannot answer the question, say so.
+- Answer using only the supplied document sources.
+- Prioritize sources directly relevant to the question.
+- Do not transfer technologies or facts from one project
+  to another.
+- If a project's programming stack is not mentioned,
+  explicitly say that it is not specified.
+- Answer all parts that have sufficient evidence.
+- Cite factual claims using the supplied source numbers.
+- Use only relevant citations.
+- Do not create a separate bibliography.
+
+Provide a grounded, useful answer.
 """,
         }
     )
+
+    # --------------------------------------------------
+    # 4. Generate answer using Ollama
+    # --------------------------------------------------
 
     try:
         response = httpx.post(
@@ -127,17 +190,32 @@ CITATION REQUIREMENTS:
         )
 
         response.raise_for_status()
+
         data = response.json()
 
-        answer = data.get("message", {}).get("content", "").strip()
+        answer = (
+            data.get("message", {})
+            .get("content", "")
+            .strip()
+        )
+
+        print("\n========== RAG DEBUG ==========")
+        print("Sources supplied:", len(sources))
+        print("Answer length:", len(answer))
+        print("Citation matches:", CITATION_PATTERN.findall(answer))
+       print("================================\n")
 
         if not answer:
-            raise RuntimeError("Ollama returned an empty response.")
+            raise RuntimeError(
+                "Ollama returned an empty response."
+            )
 
-        # Extract citation numbers in the order they appear.
+        # --------------------------------------------------
+        # 5. Extract and validate citation numbers
+        # --------------------------------------------------
+
         matches = CITATION_PATTERN.findall(answer)
 
-        # Keep only valid, unique source indexes.
         cited_indexes = []
 
         for match in matches:
@@ -149,12 +227,14 @@ CITATION REQUIREMENTS:
             ):
                 cited_indexes.append(source_index)
 
-        # An answer without valid citations cannot be trusted
-        # as a grounded response.
+        # A grounded answer must cite at least one valid source.
         if not cited_indexes:
             return INSUFFICIENT_EVIDENCE, []
 
-        # Map original source indexes to consecutive citation numbers.
+        # --------------------------------------------------
+        # 6. Normalize citation numbering
+        # --------------------------------------------------
+
         citation_mapping = {
             original_index: new_index
             for new_index, original_index in enumerate(
@@ -176,7 +256,10 @@ CITATION REQUIREMENTS:
             answer,
         ).strip()
 
-        # Return sources in the same order as normalized citations.
+        # --------------------------------------------------
+        # 7. Return only cited sources
+        # --------------------------------------------------
+
         cited_sources = [
             sources[index - 1]
             for index in cited_indexes
@@ -191,5 +274,6 @@ CITATION REQUIREMENTS:
 
     except httpx.HTTPError as exc:
         raise RuntimeError(
-            "Could not communicate with Ollama. Make sure Ollama is running."
+            "Could not communicate with Ollama. "
+            "Make sure Ollama is running."
         ) from exc

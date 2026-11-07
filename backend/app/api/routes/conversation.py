@@ -1,4 +1,6 @@
 
+import logging
+
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -31,6 +33,8 @@ from app.services.rag_service import (
 )
 from app.services.search_service import semantic_search
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/conversations",
@@ -119,20 +123,40 @@ def ask_question(
 
         # 2. Retrieve relevant document passages.
 
+        retrieval_limit = min(
+            max(settings.rag_top_k, 8),
+            12,
+        )
+
         retrieved_sources = semantic_search(
             db=db,
             user_id=current_user.id,
             query=payload.question,
-            limit=settings.rag_top_k,
+            limit=retrieval_limit,
         )
 
-        relevant_sources = [
-            source
-            for source in retrieved_sources
-            if source["similarity"] >= settings.rag_min_similarity
-        ]
+        logger.info(
+            "Recall retrieval completed: retrieved=%s requested=%s",
+            len(retrieved_sources),
+            retrieval_limit,
+        )
 
-        # 3. Load recent conversation history.
+        # 3. Use ranked retrieval results directly.
+        # RRF scores are ranking signals, not cosine similarity
+        # probabilities. Do not apply a cosine threshold here.
+
+        relevant_sources = retrieved_sources
+
+        logger.info(
+            "Recall evidence selection completed: sources=%s pages=%s",
+            len(relevant_sources),
+            sorted({
+                source["page_number"]
+                for source in relevant_sources
+            }),
+        )
+
+        # 4. Load recent conversation history.
 
         history_statement = (
             select(Message)
@@ -159,7 +183,7 @@ def ask_question(
             )
         ]
 
-        # 4. Save user message.
+        # 5. Save user message.
 
         user_message = Message(
             conversation_id=conversation.id,
@@ -170,7 +194,7 @@ def ask_question(
         db.add(user_message)
         db.flush()
 
-        # 5. Generate answer and identify cited sources.
+        # 6. Generate answer and identify cited sources.
 
         if relevant_sources:
             answer, cited_sources = generate_rag_answer(
@@ -182,7 +206,12 @@ def ask_question(
             answer = INSUFFICIENT_EVIDENCE
             cited_sources = []
 
-        # 6. Save assistant message.
+        logger.info(
+            "Recall answer generation completed: cited_sources=%s",
+            len(cited_sources),
+        )
+
+        # 7. Save assistant message.
 
         assistant_message = Message(
             conversation_id=conversation.id,
@@ -198,7 +227,7 @@ def ask_question(
         db.add(assistant_message)
         db.flush()
 
-        # 7. Persist only validated citations.
+        # 8. Persist only validated citations.
 
         for index, source in enumerate(
             cited_sources,
@@ -222,15 +251,15 @@ def ask_question(
                 )
             )
 
-        # 8. Update conversation activity.
+        # 9. Update conversation activity.
 
         conversation.updated_at = datetime.now(timezone.utc)
 
-        # 9. Commit transaction.
+        # 10. Commit transaction.
 
         db.commit()
 
-        # 10. Reload assistant message with citation relationships.
+        # 11. Reload assistant message with citation relationships.
 
         assistant_message = db.scalar(
             select(Message)
@@ -261,6 +290,8 @@ def ask_question(
 
     except Exception as exc:
         db.rollback()
+
+        logger.exception("Recall conversation request failed.")
 
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
