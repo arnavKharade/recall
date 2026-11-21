@@ -4,6 +4,8 @@
 
 ## Demo and hosting constraints
 
+**Live frontend demo:** [recall-eight-rosy.vercel.app](https://recall-eight-rosy.vercel.app/)
+
 There is currently no budget for a permanently hosted backend. Vercel therefore serves only the user interface in demo mode. The demo uses fictional sample documents and prepared sample answers so visitors can explore the screens and citation interaction. It does not connect to the AI pipeline, accept uploads, create accounts, or save conversations.
 
 The complete application is in this GitHub repository. To try real uploads, retrieval, and answers, either set it up locally using the instructions below or view it on the developer's laptop while its database, backend, and Ollama services are running. The GitHub repository contains the code and setup instructions; GitHub itself is not hosting the live backend.
