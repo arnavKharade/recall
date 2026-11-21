@@ -41,8 +41,9 @@ const navigation = [
 
 function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
+    <>
     <aside
-      className={`flex h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 ${
+      className={`sticky top-0 z-30 hidden h-screen shrink-0 self-start flex-col border-r border-border bg-surface transition-[width] duration-200 lg:flex ${
         collapsed ? 'w-[76px]' : 'w-64'
       }`}
     >
@@ -155,6 +156,33 @@ function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </button>
       </div>
     </aside>
+
+    <nav
+      aria-label="Mobile navigation"
+      className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-surface/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_rgb(15_23_42_/_0.06)] backdrop-blur lg:hidden"
+    >
+      {[...navigation, { label: 'Settings', path: '/settings', icon: Settings }].map((item) => {
+        const Icon = item.icon
+        return (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            end={item.path === '/'}
+            aria-label={item.label}
+            title={item.label}
+            className={({ isActive }) =>
+              `flex min-w-0 flex-col items-center justify-center gap-1 py-2 text-[10px] font-medium transition-colors ${
+                isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`
+            }
+          >
+            <Icon size={19} strokeWidth={1.8} />
+            <span className="max-w-full truncate">{item.label === 'My Documents' ? 'Documents' : item.label}</span>
+          </NavLink>
+        )
+      })}
+    </nav>
+    </>
   )
 }
 

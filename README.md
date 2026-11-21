@@ -1,138 +1,152 @@
-# Recall — AI-Powered Document Intelligence
+# Recall
 
-Recall is an AI-powered document intelligence platform that helps users understand, search, and interact with their documents through natural-language questions.
+**Recall is an AI document assistant that helps people ask questions about PDFs and check the answer against cited source pages.** This repository contains the full-stack project. The public Vercel version is a frontend-only portfolio demo; the full application runs locally with the backend services described below.
 
-Instead of manually searching through lengthy PDFs, users can upload documents, discover relevant information, and receive AI-generated answers grounded in the contents of their files.
+## Demo and hosting constraints
 
-## Problem Statement
+There is currently no budget for a permanently hosted backend. Vercel therefore serves only the user interface in demo mode. The demo uses fictional sample documents and prepared sample answers so visitors can explore the screens and citation interaction. It does not connect to the AI pipeline, accept uploads, create accounts, or save conversations.
 
-Finding specific information in lengthy documents can be time-consuming. Traditional document viewers primarily rely on keyword searches, which may not identify relevant passages when the wording differs from the user's query.
+The complete application is in this GitHub repository. To try real uploads, retrieval, and answers, either set it up locally using the instructions below or view it on the developer's laptop while its database, backend, and Ollama services are running. The GitHub repository contains the code and setup instructions; GitHub itself is not hosting the live backend.
 
-Recall aims to make document exploration more intuitive by combining semantic search, document processing, and retrieval-augmented generation (RAG).
+To run the frontend demo locally without the backend, see [commands.txt](commands.txt). For a Vercel deployment, set the project root to `frontend` and define `VITE_DEMO_MODE=true`.
 
-## Core Features
+## Aim
 
-### Minimum Viable Product (MVP)
+The goal is to make long documents easier to use. A user should be able to upload PDFs, organize them into collections, ask a question in everyday language, and receive an answer grounded in retrieved document passages. Citations include the document name, quoted passage, and PDF page so users can verify the evidence. When retrieval does not find adequate evidence, Recall should say so rather than invent an answer.
 
-- **Document Upload:** Upload PDF documents through the web interface.
-- **Document Library:** View and manage uploaded documents.
-- **Text Extraction:** Extract readable text from PDF files.
-- **Document Processing:** Split extracted text into smaller, searchable chunks.
-- **Semantic Search:** Retrieve relevant passages based on meaning rather than exact keyword matches.
-- **AI Question Answering:** Ask natural-language questions about uploaded documents.
-- **Source Citations:** Connect generated answers to the document passages that support them.
-- **Document Management:** Track processing status and manage stored documents.
-- **Authentication and Authorization:** Protect user accounts and ensure users can access only their own documents.
+## What the project demonstrates
 
-### Planned Enhancements
+- A full-stack workflow for account access, PDF uploads, document collections, and conversations.
+- PDF text extraction, chunking, and 384-dimensional embeddings.
+- Hybrid document retrieval using PostgreSQL full-text search and pgvector, combined with Reciprocal Rank Fusion.
+- Local-model answer generation through Ollama, with source and page citations.
+- A React interface for managing documents and reviewing answers alongside their evidence.
 
-- Automatic document summaries.
-- Flashcard generation for learning and revision.
-- Comparisons between multiple documents.
-- Collections and document organization.
+Recall is a portfolio-stage prototype. Retrieval quality and citation behavior are still being evaluated across different documents and question types. Scanned PDFs that contain images rather than extractable text are not supported because OCR has not been added.
 
-## Technology Stack
+## Technology
 
-| Component | Technology | Purpose |
-|---|---|---|
-| Frontend | React, TypeScript, Vite | User interface |
-| Styling | Tailwind CSS | Responsive interface and design system |
-| Routing | React Router | Client-side navigation |
-| Server-state management | TanStack Query | API data fetching and caching |
-| Backend | Python, FastAPI | REST API and application logic |
-| Database | PostgreSQL | Persistent application data |
-| Vector Search | pgvector | Similarity search over document embeddings |
-| Database Access | SQLAlchemy | Python database operations |
-| Database Migrations | Alembic | Versioned database schema changes |
-| PDF Processing | PyMuPDF | Extract text from PDF documents |
-| AI Integration | To be finalized | Embeddings, retrieval, and answer generation |
-| Testing | Pytest, Vitest, React Testing Library | Backend and frontend testing |
-| Version Control | Git, GitHub | Collaboration and source control |
+| Area | Technologies |
+|---|---|
+| Frontend | React, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query |
+| Backend | Python, FastAPI, SQLAlchemy 2, Alembic |
+| Database and search | PostgreSQL, pgvector, PostgreSQL full-text search, Reciprocal Rank Fusion |
+| Document processing | PyMuPDF, sentence-transformers `all-MiniLM-L6-v2` (384-dimensional embeddings) |
+| Answer generation | Ollama with `qwen2.5:3b` |
+| Development and deployment | Docker Compose, Pytest, Vitest/React Testing Library planned |
 
-## How It Works
-
-The intended document-question-answering workflow is:
-
-1. A user uploads a PDF through the frontend.
-2. The backend validates the upload and stores the document.
-3. The PDF processing service extracts its text.
-4. The extracted text is divided into smaller chunks.
-5. An embedding model converts the chunks into vector representations.
-6. PostgreSQL stores document metadata and chunks, while pgvector supports similarity search over embeddings.
-7. When the user asks a question, Recall retrieves relevant document passages.
-8. The AI model generates an answer using the retrieved passages as context.
-9. The frontend displays the answer alongside source references.
-
-This workflow is the planned architecture; individual stages will be implemented and tested incrementally.
-
-## Project Structure
+## How answers are produced
 
 ```text
-Recall/
-├── frontend/          # React application
-├── backend/           # FastAPI application
-├── docs/              # Project and technical documentation
-├── .gitignore
-└── README.md
+PDF upload → text extraction → chunking and embeddings → PostgreSQL + pgvector
+Question   → vector and keyword retrieval → RRF ranking → Ollama answer
+                                                              ↓
+                                              answer with passage and page citations
 ```
 
-The structure will expand as application modules are introduced.
+## Run the full application locally
 
-## Development Principles
+### Prerequisites
 
-- Keep the frontend and backend responsibilities separate.
-- Use environment variables for configuration and secrets.
-- Validate uploaded files and enforce document ownership.
-- Keep database schema changes version-controlled.
-- Return clear API errors and handle processing failures.
-- Test core functionality as it is implemented.
-- Keep generated answers grounded in retrieved document evidence.
-- Avoid exposing private document contents or credentials in logs.
+- Git and Docker Desktop with Docker Compose v2
+- Node.js 22+ and npm
+- Python 3.11 or 3.12
+- Ollama installed and running on the development machine
+- Internet access for the first download of the Ollama and sentence-transformers models
 
-## Development Roadmap
+### 1. Configure local environment files
 
-### Phase 1 — Project Foundation
-- Establish the repository and development workflow.
-- Document the system architecture.
-- Create the initial FastAPI application.
-- Define the database schema.
+From the repository root, copy the examples:
 
-### Phase 2 — Database and API
-- Integrate PostgreSQL and pgvector.
-- Implement document metadata and database access.
-- Establish API request and response contracts.
+```sh
+cp .env.example .env
+cp frontend/.env.example frontend/.env.local
+```
 
-### Phase 3 — Document Processing
-- Implement PDF uploads and validation.
-- Extract text and generate document chunks.
-- Store processing status and extracted content.
+The root `.env` example uses the local PostgreSQL address `localhost:5432`. Change the example `SECRET_KEY` to a private random value of at least 32 characters. Do not commit `.env` or `.env.local` files.
 
-### Phase 4 — Search and Question Answering
-- Generate embeddings.
-- Implement semantic retrieval.
-- Generate evidence-grounded answers.
-- Display source citations.
+### 2. Start PostgreSQL and Ollama
 
-### Phase 5 — Reliability and Security
-- Implement authentication and authorization.
-- Add tests and error handling.
-- Validate access controls and document deletion behavior.
+Start the database container:
 
-### Phase 6 — Portfolio Polish
-- Improve loading, empty, and error states.
-- Add summaries and other enhancements.
-- Document setup instructions and architecture decisions.
+```sh
+docker compose up -d db
+```
 
-## Collaboration
+Start Ollama on your machine and download the model once:
 
-Recall is being developed collaboratively using Git and GitHub.
+```sh
+ollama pull qwen2.5:3b
+```
 
-- `main` is reserved for stable, integrated work.
-- Features are developed on separate branches.
-- Changes are reviewed and merged through pull requests.
+The local backend expects PostgreSQL at `localhost:5432` and Ollama at `http://localhost:11434`.
 
-## Project Status
+### 3. Start the backend
 
-**Status:** Initial development
+In a new terminal:
 
-The frontend interface is under development. The backend, database integration, document processing pipeline, and AI functionality will be implemented incrementally.
+```sh
+cd backend
+python -m venv .venv
+```
+
+Activate the environment. In Git Bash on Windows, use `source .venv/Scripts/activate`; in PowerShell, use `.venv\Scripts\Activate.ps1`; on macOS/Linux, use `source .venv/bin/activate`.
+
+Then install dependencies, apply migrations, and start the API:
+
+```sh
+python -m pip install -r requirements-dev.txt
+alembic upgrade head
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The API health endpoints are `http://127.0.0.1:8000/health` and `http://127.0.0.1:8000/health/database`.
+
+### 4. Start the frontend
+
+In another terminal:
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Open `http://localhost:5173`. The frontend example points to `http://localhost:8000/api/v1`. If you run the backend on a different port, set `VITE_API_URL` in `frontend/.env.local` to match it, then restart Vite.
+
+### Docker Compose alternative
+
+Compose can run PostgreSQL, Ollama, migrations, FastAPI, and the Nginx frontend together. From the repository root:
+
+```sh
+docker compose up -d db ollama
+docker compose --profile setup run --rm ollama-model-setup
+docker compose up -d --build
+```
+
+The app is served at `http://localhost:8080`. PDFs, the database, Ollama models, and the embedding cache use persistent Docker volumes. Do not use `docker compose down -v` for routine shutdowns; it deletes those volumes and their data.
+
+## Constraints and next steps
+
+- **Hosting:** only the sample frontend demo is intended for Vercel. FastAPI, PostgreSQL/pgvector, Ollama, and persistent PDF storage are not currently hosted publicly because of the cost.
+- **Demo behavior:** sample questions use prepared responses; they do not call the real retrieval or generation pipeline.
+- **Model speed:** the local Qwen model runs on CPU in the basic setup, so answers can take time.
+- **PDF support:** text-based PDFs are supported; scanned/image-only PDFs need OCR.
+- **Quality:** hybrid retrieval and page citations need continued evaluation on varied documents, collections, and questions with insufficient evidence.
+- **Production work:** deployment hardening, backups, rate limiting, security review, and S3-compatible PDF storage remain future work.
+
+## Development checks
+
+```sh
+cd frontend
+npm run build
+npm run lint
+```
+
+```sh
+cd backend
+python -m pytest
+python -m compileall -q app
+```
+
+See [commands.txt](commands.txt) for copy-and-run startup commands, including the frontend-only demo.

@@ -52,8 +52,10 @@ function MainLayout() {
           description={page.description}
         />
 
-        <main className="min-w-0 flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-8">
-          <Outlet />
+        <main className="min-w-0 flex-1 overflow-x-hidden p-4 pb-24 sm:p-6 sm:pb-24 lg:p-8">
+          <div className="mx-auto w-full max-w-[1440px] min-w-0">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>
