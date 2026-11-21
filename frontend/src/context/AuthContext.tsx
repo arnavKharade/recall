@@ -47,10 +47,11 @@ type TokenResponse = {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+const demoMode = import.meta.env.VITE_DEMO_MODE === 'true'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(!demoMode)
 
   const logout = useCallback(() => {
     clearAccessToken()
@@ -61,13 +62,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const tokenResponse = await api.post<TokenResponse>(
       '/auth/login',
       credentials,
-      { auth: false },
+      { auth: false, timeoutMs: 15_000 },
     )
 
     setAccessToken(tokenResponse.access_token)
 
     try {
-      const currentUser = await api.get<User>('/auth/me')
+      const currentUser = await api.get<User>('/auth/me', {
+        timeoutMs: 15_000,
+      })
       setUser(currentUser)
     } catch (error) {
       clearAccessToken()
@@ -79,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(async (credentials: RegisterCredentials) => {
     await api.post<User>('/auth/register', credentials, {
       auth: false,
+      timeoutMs: 15_000,
     })
 
     await login({
@@ -88,6 +92,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [login])
 
   useEffect(() => {
+    if (demoMode) return
+
     let active = true
 
     async function restoreSession() {
@@ -99,7 +105,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const currentUser = await api.get<User>('/auth/me')
+        const currentUser = await api.get<User>('/auth/me', {
+          timeoutMs: 15_000,
+        })
 
         if (active) {
           setUser(currentUser)

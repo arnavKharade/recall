@@ -203,7 +203,7 @@ Provide a grounded, useful answer.
         print("Sources supplied:", len(sources))
         print("Answer length:", len(answer))
         print("Citation matches:", CITATION_PATTERN.findall(answer))
-       print("================================\n")
+        print("================================\n")
 
         if not answer:
             raise RuntimeError(
@@ -227,9 +227,14 @@ Provide a grounded, useful answer.
             ):
                 cited_indexes.append(source_index)
 
-        # A grounded answer must cite at least one valid source.
+        # Keep the model's useful answer if it forgot the citation syntax.
+        # Attach the highest-ranked retrieved passage as a verifiable source.
         if not cited_indexes:
-            return INSUFFICIENT_EVIDENCE, []
+            if matches:
+                return INSUFFICIENT_EVIDENCE, []
+
+            cited_indexes = [1]
+            answer = f"{answer.rstrip()} [1]"
 
         # --------------------------------------------------
         # 6. Normalize citation numbering
@@ -251,9 +256,10 @@ Provide a grounded, useful answer.
 
             return f"[{citation_mapping[original_index]}]"
 
-        answer = CITATION_PATTERN.sub(
-            normalize_citation,
-            answer,
+        answer = re.sub(
+            r"\s+([.,;:!?])",
+            r"\1",
+            CITATION_PATTERN.sub(normalize_citation, answer),
         ).strip()
 
         # --------------------------------------------------

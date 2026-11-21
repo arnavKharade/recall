@@ -12,6 +12,9 @@ import Documents from './pages/Documents'
 import Ask from './pages/Ask'
 import Collections from './pages/Collections'
 import Settings from './pages/Settings'
+import Demo from './pages/Demo'
+
+const demoMode = import.meta.env.VITE_DEMO_MODE === 'true'
 
 function PublicOnlyRoute() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -30,24 +33,30 @@ function PublicOnlyRoute() {
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route element={<PublicOnlyRoute />}>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-        </Route>
-
-        <Route element={<ProtectedRoute />}>
-          <Route element={<MainLayout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/documents" element={<Documents />} />
-            <Route path="/ask" element={<Ask />} />
-            <Route path="/collections" element={<Collections />} />
-            <Route path="/settings" element={<Settings />} />
+      {demoMode ? (
+        <Routes>
+          <Route path="*" element={<Demo />} />
+        </Routes>
+      ) : (
+        <Routes>
+          <Route element={<PublicOnlyRoute />}>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
           </Route>
-        </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route element={<MainLayout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/documents" element={<Documents />} />
+              <Route path="/ask" element={<Ask />} />
+              <Route path="/collections" element={<Collections />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
+          </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      )}
     </BrowserRouter>
   )
 }

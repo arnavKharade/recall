@@ -1,6 +1,7 @@
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1'
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL ??
+  (import.meta.env.DEV ? 'http://localhost:8000/api/v1' : '/api/v1')
 
 const TOKEN_KEY = 'recall_access_token'
 
@@ -36,13 +37,14 @@ export class ApiError extends Error {
 type RequestOptions = Omit<RequestInit, 'body'> & {
   body?: unknown
   auth?: boolean
+  timeoutMs?: number
 }
 
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { body, auth = true, headers, ...requestOptions } = options
+  const { body, auth = true, headers, timeoutMs, ...requestOptions } = options
 
   const requestHeaders = new Headers(headers)
 
@@ -58,10 +60,13 @@ export async function apiRequest<T>(
     }
   }
 
-  let response: Response
+  const timeoutController = timeoutMs ? new AbortController() : undefined
+  const timeoutId = timeoutMs
+    ? window.setTimeout(() => timeoutController?.abort(), timeoutMs)
+    : undefined
 
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    const fetchOptions: RequestInit = {
       ...requestOptions,
       headers: requestHeaders,
       body:
@@ -70,33 +75,54 @@ export async function apiRequest<T>(
           : body instanceof FormData
             ? body
             : JSON.stringify(body),
-    })
-  } catch {
+    }
+
+    if (timeoutController) {
+      fetchOptions.signal = timeoutController.signal
+    }
+
+    const response = await fetch(`${API_BASE_URL}${path}`, fetchOptions)
+
+    if (response.status === 204) {
+      return undefined as T
+    }
+
+    const contentType = response.headers.get('content-type')
+    const responseData = contentType?.includes('application/json')
+      ? await response.json()
+      : await response.text()
+
+    if (!response.ok) {
+      const detail =
+        typeof responseData === 'object' && responseData !== null
+          ? responseData.detail ?? responseData.message
+          : responseData
+
+      throw new ApiError(response.status, detail)
+    }
+
+    return responseData as T
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error
+    }
+
+    if (timeoutController?.signal.aborted) {
+      throw new ApiError(
+        0,
+        'The request timed out. Check that the backend and database are running, then try again.',
+      )
+    }
+
     throw new ApiError(
       0,
       'Unable to connect to Recall. Make sure the backend server is running.',
     )
+  } finally {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId)
+    }
   }
-
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  const contentType = response.headers.get('content-type')
-  const responseData = contentType?.includes('application/json')
-    ? await response.json()
-    : await response.text()
-
-  if (!response.ok) {
-    const detail =
-      typeof responseData === 'object' && responseData !== null
-        ? responseData.detail ?? responseData.message
-        : responseData
-
-    throw new ApiError(response.status, detail)
-  }
-
-  return responseData as T
 }
 
 export const api = {

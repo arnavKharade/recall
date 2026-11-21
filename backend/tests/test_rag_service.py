@@ -172,6 +172,26 @@ def test_no_valid_citations_returns_insufficient_evidence(
     assert cited_sources == []
 
 
+def test_missing_citation_keeps_answer_and_attaches_top_source(
+    monkeypatch,
+    sources,
+):
+    mock_ollama(
+        monkeypatch,
+        "The meal allowance is ₹350 for shifts exceeding 9 hours.",
+    )
+
+    answer, cited_sources = rag_service.generate_rag_answer(
+        question="What is the meal allowance?",
+        sources=sources,
+    )
+
+    assert answer == (
+        "The meal allowance is ₹350 for shifts exceeding 9 hours. [1]"
+    )
+    assert cited_sources == [sources[0]]
+
+
 def test_empty_ollama_response_raises_error(monkeypatch, sources):
     mock_ollama(monkeypatch, "")
 

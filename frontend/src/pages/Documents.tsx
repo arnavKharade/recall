@@ -17,7 +17,8 @@ import {
   X,
 } from 'lucide-react'
 
-import { ApiError, api, apiRequest } from '../services/api'
+import { API_BASE_URL, ApiError, api, apiRequest, getAccessToken } from '../services/api'
+import Dropdown from '../components/ui/Dropdown'
 
 interface DocumentItem {
   id: string
@@ -41,6 +42,12 @@ interface Collection {
 }
 
 type CollectionFilter = 'all' | 'unassigned' | string
+type UploadProgress = {
+  fileName: string
+  fileIndex: number
+  total: number
+  stage: 'uploading' | 'processing'
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -107,6 +114,7 @@ export default function Documents() {
 
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
 
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
@@ -209,7 +217,14 @@ export default function Documents() {
     let failedCount = 0
 
     try {
-      for (const file of files) {
+      for (const [index, file] of files.entries()) {
+        setUploadProgress({
+          fileName: file.name,
+          fileIndex: index + 1,
+          total: files.length,
+          stage: 'uploading',
+        })
+
         try {
           const formData = new FormData()
           formData.append('file', file)
@@ -224,6 +239,16 @@ export default function Documents() {
           )
 
           uploadedCount++
+          setDocuments((current) => [
+            uploaded,
+            ...current.filter((document) => document.id !== uploaded.id),
+          ])
+          setUploadProgress({
+            fileName: file.name,
+            fileIndex: index + 1,
+            total: files.length,
+            stage: 'processing',
+          })
 
           const processed = await processDocument(uploaded.id)
 
@@ -254,6 +279,7 @@ export default function Documents() {
       }
     } finally {
       setUploading(false)
+      setUploadProgress(null)
     }
   }
 
@@ -334,10 +360,10 @@ export default function Documents() {
     setError('')
 
     try {
-      const token = sessionStorage.getItem('recall_access_token')
+      const token = getAccessToken()
 
       const response = await fetch(
-        `http://localhost:8000/api/v1/documents/${document.id}/download`,
+        `${API_BASE_URL}/documents/${document.id}/download`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -400,20 +426,20 @@ export default function Documents() {
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">
-          <select
+          <Dropdown
             value={uploadCollectionId}
-            onChange={(event) => setUploadCollectionId(event.target.value)}
+            onChange={setUploadCollectionId}
             disabled={uploading}
-            aria-label="Choose upload collection"
-            className="rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary disabled:opacity-50"
-          >
-            <option value="">Upload to: Unassigned</option>
-            {collections.map((collection) => (
-              <option key={collection.id} value={collection.id}>
-                Upload to: {collection.name}
-              </option>
-            ))}
-          </select>
+            label="Choose upload collection"
+            className="min-w-48"
+            options={[
+              { value: '', label: 'Upload to: Unassigned' },
+              ...collections.map((collection) => ({
+                value: collection.id,
+                label: `Upload to: ${collection.name}`,
+              })),
+            ]}
+          />
 
           <input
             ref={fileInputRef}
@@ -435,14 +461,14 @@ export default function Documents() {
             ) : (
               <Upload size={17} />
             )}
-            {uploading ? 'Uploading...' : 'Upload PDF'}
+            {uploading ? 'Working...' : 'Upload PDF'}
           </button>
         </div>
       </div>
 
       {/* Notifications */}
       {error && (
-        <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-500">
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-500">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
           <p className="flex-1">{error}</p>
           <button
@@ -456,7 +482,7 @@ export default function Documents() {
       )}
 
       {success && (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-500">
+        <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-500">
           <CheckCircle2 size={18} />
           <p className="flex-1">{success}</p>
           <button
@@ -466,6 +492,43 @@ export default function Documents() {
           >
             <X size={16} />
           </button>
+        </div>
+      )}
+
+      {uploading && uploadProgress && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-xl border border-primary/20 bg-primary-subtle/40 p-4"
+        >
+          <div className="flex items-start gap-3">
+            <LoaderCircle size={18} className="mt-0.5 shrink-0 animate-spin text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">
+                {uploadProgress.stage === 'uploading'
+                  ? 'Uploading PDF'
+                  : 'Preparing PDF for search'}
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  {uploadProgress.fileIndex} of {uploadProgress.total}
+                </span>
+              </p>
+              <p className="mt-1 truncate text-xs text-muted-foreground" title={uploadProgress.fileName}>
+                {uploadProgress.fileName}
+              </p>
+              <div
+                className="mt-3 h-1.5 overflow-hidden rounded-full bg-primary/10"
+                role="progressbar"
+                aria-label={uploadProgress.stage === 'uploading' ? 'Uploading PDF' : 'Preparing PDF for search'}
+              >
+                <div className="h-full w-1/3 animate-pulse rounded-full bg-primary motion-reduce:animate-none" />
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {uploadProgress.stage === 'uploading'
+                  ? 'Saving the file to your library…'
+                  : 'Extracting text and building searchable passages…'}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -505,22 +568,20 @@ export default function Documents() {
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">
-          <select
+          <Dropdown
             value={collectionFilter}
-            onChange={(event) =>
-              setCollectionFilter(event.target.value as CollectionFilter)
-            }
-            className="rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary"
-            aria-label="Filter documents by collection"
-          >
-            <option value="all">All documents</option>
-            <option value="unassigned">Unassigned documents</option>
-            {collections.map((collection) => (
-              <option key={collection.id} value={collection.id}>
-                {collection.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setCollectionFilter(value as CollectionFilter)}
+            label="Filter documents by collection"
+            className="min-w-48"
+            options={[
+              { value: 'all', label: 'All documents' },
+              { value: 'unassigned', label: 'Unassigned documents' },
+              ...collections.map((collection) => ({
+                value: collection.id,
+                label: collection.name,
+              })),
+            ]}
+          />
 
           <div className="relative w-full sm:w-64">
             <Search
@@ -529,9 +590,11 @@ export default function Documents() {
             />
 
             <input
+              type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search documents..."
+              aria-label="Search documents by filename"
               className="w-full rounded-xl border border-border bg-surface py-2.5 pl-10 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
             />
           </div>
@@ -650,22 +713,20 @@ export default function Documents() {
                       className="shrink-0 text-muted-foreground"
                     />
 
-                    <select
+                    <Dropdown
                       value={document.collection_id ?? ''}
                       disabled={movingIds.has(document.id)}
-                      onChange={(event) =>
-                        void handleMoveDocument(document, event.target.value)
-                      }
-                      aria-label={`Move ${document.original_filename} to collection`}
-                      className="min-w-0 max-w-56 rounded-lg border border-border bg-surface px-2.5 py-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-50"
-                    >
-                      <option value="">Unassigned</option>
-                      {collections.map((collection) => (
-                        <option key={collection.id} value={collection.id}>
-                          {collection.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(value) => void handleMoveDocument(document, value)}
+                      label={`Move ${document.original_filename} to collection`}
+                      className="min-w-0 max-w-56 flex-1"
+                      options={[
+                        { value: '', label: 'Unassigned' },
+                        ...collections.map((collection) => ({
+                          value: collection.id,
+                          label: collection.name,
+                        })),
+                      ]}
+                    />
 
                     {movingIds.has(document.id) && (
                       <LoaderCircle
@@ -676,7 +737,9 @@ export default function Documents() {
                   </div>
 
                   <div className="flex items-center justify-between gap-3 sm:justify-end">
-                    <StatusBadge status={document.status} />
+                    <StatusBadge
+                      status={processingIds.has(document.id) ? 'processing' : document.status}
+                    />
 
                     <div className="flex items-center gap-1">
                       {(document.status === 'uploaded' ||

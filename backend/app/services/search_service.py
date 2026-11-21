@@ -63,6 +63,7 @@ def semantic_search(
     user_id: UUID,
     query: str,
     limit: int = 8,
+    collection_id: UUID | None = None,
 ) -> list[dict]:
 
     query = query.strip()
@@ -79,10 +80,13 @@ def semantic_search(
 
     combined_results = {}
 
-    base_filters = (
+    base_filters = [
         Document.user_id == user_id,
         Document.status == DocumentStatus.COMPLETED,
-    )
+    ]
+
+    if collection_id is not None:
+        base_filters.append(Document.collection_id == collection_id)
 
     # --------------------------------------------------
     # 1. Exact project-name retrieval

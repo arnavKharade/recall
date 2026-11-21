@@ -12,6 +12,7 @@ from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.db.database import get_db
 from app.models import (
+    Collection,
     Conversation,
     DocumentChunk,
     Message,
@@ -123,6 +124,20 @@ def ask_question(
 
         # 2. Retrieve relevant document passages.
 
+        if payload.collection_id is not None:
+            collection = db.scalar(
+                select(Collection).where(
+                    Collection.id == payload.collection_id,
+                    Collection.user_id == current_user.id,
+                )
+            )
+
+            if collection is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Collection not found.",
+                )
+
         retrieval_limit = min(
             max(settings.rag_top_k, 8),
             12,
@@ -133,6 +148,7 @@ def ask_question(
             user_id=current_user.id,
             query=payload.question,
             limit=retrieval_limit,
+            collection_id=payload.collection_id,
         )
 
         logger.info(

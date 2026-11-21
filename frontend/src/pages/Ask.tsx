@@ -8,10 +8,12 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
   ArrowUp,
   BookOpen,
+  ExternalLink,
   FileText,
   LoaderCircle,
   MessageSquare,
@@ -20,7 +22,48 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react'
-import { api, ApiError } from '../services/api'
+import { API_BASE_URL, api, ApiError, getAccessToken } from '../services/api'
+import Dropdown from '../components/ui/Dropdown'
+
+function AnswerText({
+  content,
+  animate,
+  onComplete,
+}: {
+  content: string
+  animate: boolean
+  onComplete: () => void
+}) {
+  const [visibleLength, setVisibleLength] = useState(animate ? 0 : content.length)
+
+  useEffect(() => {
+    if (!animate || visibleLength >= content.length) return
+
+    const step = Math.max(1, Math.ceil(content.length / 100))
+    const timer = window.setInterval(() => {
+      setVisibleLength((current) => {
+        const next = Math.min(current + step, content.length)
+        if (next >= content.length) window.clearInterval(timer)
+        return next
+      })
+    }, 24)
+
+    return () => window.clearInterval(timer)
+  }, [animate, content.length, visibleLength])
+
+  useEffect(() => {
+    if (animate && visibleLength >= content.length) onComplete()
+  }, [animate, content.length, onComplete, visibleLength])
+
+  const typing = animate && visibleLength < content.length
+
+  return (
+    <span>
+      {content.slice(0, visibleLength)}
+      {typing && <span aria-hidden="true" className="ml-0.5 animate-pulse text-primary">▍</span>}
+    </span>
+  )
+}
 
 interface Citation {
   chunk_id: string
@@ -50,6 +93,11 @@ interface Conversation {
 
 interface ConversationDetail extends Conversation {
   messages: ChatMessage[]
+}
+
+interface CollectionOption {
+  id: string
+  name: string
 }
 
 interface AskResponse {
@@ -91,19 +139,85 @@ function formatDate(date: string): string {
 }
 
 export default function Ask() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [animatedMessageId, setAnimatedMessageId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [question, setQuestion] = useState('')
+  const [collections, setCollections] = useState<CollectionOption[]>([])
+  const [selectedCollectionId, setSelectedCollectionId] = useState('')
 
   const [loading, setLoading] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(true)
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [openingCitationId, setOpeningCitationId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  async function openCitation(citation: Citation) {
+    setError('')
+    const previewWindow = window.open('about:blank', '_blank')
+
+    if (!previewWindow) {
+      setError('Allow pop-ups for Recall to open a cited PDF page.')
+      return
+    }
+
+    previewWindow.opener = null
+    previewWindow.document.title = 'Opening cited PDF…'
+    previewWindow.document.body.textContent = 'Loading the cited page…'
+    setOpeningCitationId(citation.chunk_id)
+
+    try {
+      const token = getAccessToken()
+      if (!token) throw new Error('Your session has expired. Please sign in again.')
+
+      const response = await fetch(
+        `${API_BASE_URL}/documents/${citation.document_id}/download`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+
+      if (!response.ok) {
+        throw new Error(
+          response.status === 404
+            ? 'The cited PDF is no longer available.'
+            : 'Unable to open the cited PDF. Please try again.',
+        )
+      }
+
+      const downloadedPdf = await response.blob()
+      const pdf = downloadedPdf.type === 'application/pdf'
+        ? downloadedPdf
+        : new Blob([downloadedPdf], { type: 'application/pdf' })
+      const pdfUrl = URL.createObjectURL(pdf)
+
+      previewWindow.location.replace(`${pdfUrl}#page=${citation.page_number}`)
+
+      const cleanup = window.setInterval(() => {
+        if (previewWindow.closed) {
+          window.clearInterval(cleanup)
+          URL.revokeObjectURL(pdfUrl)
+        }
+      }, 15_000)
+    } catch (err) {
+      previewWindow.close()
+      setError(getErrorMessage(err))
+    } finally {
+      setOpeningCitationId(null)
+    }
+  }
+
+  useEffect(() => {
+    const initialQuestion = searchParams.get('question')
+    if (!initialQuestion) return
+    setQuestion(initialQuestion)
+    setSearchParams({}, { replace: true })
+    inputRef.current?.focus()
+  }, [searchParams, setSearchParams])
 
   // Load saved conversations
   const loadConversations = useCallback(async () => {
@@ -120,6 +234,22 @@ export default function Ask() {
   useEffect(() => {
     void loadConversations()
   }, [loadConversations])
+
+  useEffect(() => {
+    let active = true
+
+    api.get<CollectionOption[]>('/collections')
+      .then((data) => {
+        if (active) setCollections(data)
+      })
+      .catch((err) => {
+        if (active) setError(getErrorMessage(err))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   // Keep the latest message visible
   useEffect(() => {
@@ -221,10 +351,12 @@ export default function Ask() {
         {
           question: submittedQuestion,
           conversation_id: conversationId,
+          collection_id: selectedCollectionId || null,
         },
       )
 
       setConversationId(response.conversation_id)
+      setAnimatedMessageId(response.assistant_message.id)
 
       setMessages((current) => [
         ...current.filter(
@@ -263,7 +395,7 @@ export default function Ask() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] min-h-150 overflow-hidden rounded-2xl border border-border bg-surface">
+    <div className="flex h-[calc(100dvh-11rem)] min-h-[26rem] overflow-hidden rounded-2xl border border-border bg-surface shadow-sm lg:h-[calc(100vh-7rem)] lg:min-h-150">
 
       {/* Conversation history sidebar */}
       <aside className="hidden w-72 shrink-0 flex-col border-r border-border bg-surface-secondary md:flex">
@@ -414,6 +546,24 @@ export default function Ask() {
             </div>
           </div>
 
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="hidden sm:inline">Search in</span>
+            <Dropdown
+              value={selectedCollectionId}
+              onChange={setSelectedCollectionId}
+              disabled={loading || !!loadingConversationId}
+              label="Choose collection to search"
+              className="w-40 sm:w-48"
+              options={[
+                { value: '', label: 'All documents' },
+                ...collections.map((collection) => ({
+                  value: collection.id,
+                  label: collection.name,
+                })),
+              ]}
+            />
+          </div>
+
           <button
             type="button"
             onClick={startNewConversation}
@@ -427,7 +577,7 @@ export default function Ask() {
 
         {/* Error message */}
         {error && (
-          <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive-subtle p-3 text-sm text-destructive">
+          <div role="alert" className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive-subtle p-3 text-sm text-destructive">
             <AlertCircle
               size={17}
               className="mt-0.5 shrink-0"
@@ -530,11 +680,18 @@ export default function Ask() {
                           : 'border border-border bg-surface-secondary text-foreground'
                       }`}
                     >
-                      {message.content}
+                      <AnswerText
+                        content={message.content}
+                        animate={message.id === animatedMessageId}
+                        onComplete={() => setAnimatedMessageId((current) =>
+                          current === message.id ? null : current,
+                        )}
+                      />
                     </div>
 
                     {/* Citations */}
                     {message.role === 'assistant' &&
+                      message.id !== animatedMessageId &&
                       message.citations?.length > 0 && (
                         <div className="mt-4 space-y-2 text-left">
                           <p className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
@@ -543,29 +700,37 @@ export default function Ask() {
                           </p>
 
                           {message.citations.map((citation) => (
-                            <div
+                            <button
+                              type="button"
                               key={`${citation.chunk_id}-${citation.citation_order}`}
-                              className="rounded-xl border border-border bg-surface p-3"
+                              onClick={() => void openCitation(citation)}
+                              disabled={openingCitationId === citation.chunk_id}
+                              aria-label={`Open ${citation.document_name} at page ${citation.page_number}`}
+                              title={`Open cited passage on page ${citation.page_number}`}
+                              className="block w-full rounded-xl border border-border bg-surface p-3 text-left transition-colors hover:border-primary/50 hover:bg-surface-secondary focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-70"
                             >
-                              <div className="flex items-center gap-2">
+                              <span className="flex items-center gap-2">
                                 <FileText
                                   size={15}
                                   className="shrink-0 text-primary"
                                 />
 
-                                <span className="truncate text-sm font-medium text-foreground">
+                                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                                   {citation.document_name}
                                 </span>
 
-                                <span className="ml-auto shrink-0 rounded-md bg-primary-subtle px-2 py-1 text-xs font-medium text-primary">
-                                  Page {citation.page_number}
+                                <span className="flex shrink-0 items-center gap-1 rounded-md bg-primary-subtle px-2 py-1 text-xs font-medium text-primary">
+                                  {openingCitationId === citation.chunk_id
+                                    ? <LoaderCircle size={13} className="animate-spin" />
+                                    : <ExternalLink size={13} />}
+                                  Open page {citation.page_number}
                                 </span>
-                              </div>
+                              </span>
 
-                              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                              <span className="mt-2 block text-xs leading-5 text-muted-foreground">
                                 {citation.quoted_text}
-                              </p>
-                            </div>
+                              </span>
+                            </button>
                           ))}
                         </div>
                       )}
